@@ -1,0 +1,21 @@
+This plugin's integration code (sc68_plugin.c and CMakeLists.txt) is
+licensed under the MIT License. See the top-level LICENSE file.
+
+Third-party dependencies:
+=========================
+
+sc68 3.0.0b
+License: GPL-2.0
+Source: https://github.com/sndh-player/sc68-2.2.1 (original: https://sourceforge.net/projects/sc68/)
+Author: Benjamin Gerard
+
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 2, June 1991
+
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+The full text of the GPL-2.0 can be found at:
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.html

@@ -1,0 +1,367 @@
+--- a/libsc68/io68/paulaemul.h
++++ b/libsc68/io68/paulaemul.h
+@@ -195,6 +195,11 @@
+  */
+ typedef uint68_t plct_t;
+ 
++/* Scope capture ring buffer constants */
++#define PAULA_SCOPE_BUFFER_SIZE  1024
++#define PAULA_SCOPE_BUFFER_MASK  (PAULA_SCOPE_BUFFER_SIZE - 1)
++#define PAULA_SCOPE_NUM_CHANNELS 4
++
+ /** Must be same size than plct_t but signed. */
+ typedef int68_t signed_plct_t;
+ 
+@@ -226,6 +231,11 @@
+   int      intreq;     /**< Shadow INTREQ. */
+   int      adkcon;     /**< Shadow ADKCON. */
+   int      vhpos;      /**< Shadow VHPOSR. */
++
++  /* Scope capture ring buffers for per-channel audio visualization */
++  float    scope_buffer[PAULA_SCOPE_NUM_CHANNELS][PAULA_SCOPE_BUFFER_SIZE];
++  uint32_t scope_write_pos[PAULA_SCOPE_NUM_CHANNELS];
++  int      scope_enabled;
+ } paula_t;
+ 
+ /**
+@@ -403,6 +413,28 @@
+ void paula_mix(paula_t * const paula, s32 * splbuf, int n);
+ 
+ /**
++ * Enable or disable per-channel scope capture.
++ *
++ * @param paula   Paula emulator instance
++ * @param enable  Non-zero to enable, zero to disable
++ */
++IO68_EXTERN
++void paula_enable_scope_capture(paula_t * const paula, int enable);
++
++/**
++ * Retrieve per-channel scope data from ring buffer.
++ *
++ * @param paula       Paula emulator instance
++ * @param channel     Channel index (0-3)
++ * @param buffer      Output buffer for float samples
++ * @param num_samples Maximum number of samples to retrieve
++ * @return Number of samples written to buffer
++ */
++IO68_EXTERN
++uint32_t paula_get_scope_data(paula_t * const paula, int channel,
++                              float * buffer, uint32_t num_samples);
++
++/**
+  * @}
+  */
+ 
+--- a/libsc68/io68/paulaemul.c
++++ b/libsc68/io68/paulaemul.c
+@@ -439,6 +439,13 @@
+     /* apply volume */
+     v0  *= vol;
+ 
++    /* Capture per-channel scope data before stereo accumulation */
++    if (paula->scope_enabled) {
++      float sample_f = (float)v0 / 16384.0f;
++      paula->scope_buffer[N][paula->scope_write_pos[N] & PAULA_SCOPE_BUFFER_MASK] = sample_f;
++      paula->scope_write_pos[N]++;
++    }
++
+     assert(v0 >= -16384);
+     assert(v0 <   16384);
+ 
+@@ -554,3 +561,49 @@
+   /* HaxXx: assuming next mix is next frame reset beam V/H position. */
+   paula->vhpos = 0;
+ }
++
++void paula_enable_scope_capture(paula_t * const paula, int enable)
++{
++  int i;
++  unsigned int j;
++
++  if (!paula)
++    return;
++
++  paula->scope_enabled = enable;
++
++  if (enable) {
++    for (i = 0; i < PAULA_SCOPE_NUM_CHANNELS; i++) {
++      paula->scope_write_pos[i] = 0;
++      for (j = 0; j < PAULA_SCOPE_BUFFER_SIZE; j++) {
++        paula->scope_buffer[i][j] = 0.0f;
++      }
++    }
++  }
++}
++
++uint32_t paula_get_scope_data(paula_t * const paula, int channel,
++                              float * buffer, uint32_t num_samples)
++{
++  uint32_t read_pos;
++  uint32_t i;
++
++  if (!paula || !buffer || !paula->scope_enabled)
++    return 0;
++
++  if (channel < 0 || channel >= PAULA_SCOPE_NUM_CHANNELS)
++    return 0;
++
++  if (num_samples > PAULA_SCOPE_BUFFER_SIZE)
++    num_samples = PAULA_SCOPE_BUFFER_SIZE;
++
++  read_pos = (paula->scope_write_pos[channel] - num_samples + PAULA_SCOPE_BUFFER_SIZE)
++    & PAULA_SCOPE_BUFFER_MASK;
++
++  for (i = 0; i < num_samples; i++) {
++    buffer[i] = paula->scope_buffer[channel][read_pos];
++    read_pos = (read_pos + 1) & PAULA_SCOPE_BUFFER_MASK;
++  }
++
++  return num_samples;
++}
+--- a/libsc68/io68/ymemul.h
++++ b/libsc68/io68/ymemul.h
+@@ -14,6 +14,11 @@
+ #include "io68_api.h"
+ #include "emu68/emu68.h"
+ 
++/* Scope capture ring buffer constants */
++#define YM_SCOPE_BUFFER_SIZE  1024
++#define YM_SCOPE_BUFFER_MASK  (YM_SCOPE_BUFFER_SIZE - 1)
++#define YM_SCOPE_NUM_CHANNELS 3
++
+ /* Need these values in ymemul.c and ym_puls.c */
+ enum {
+   YM_OUT_MSK_A   = 0x001F,
+@@ -225,6 +230,12 @@
+     ym_blep_t blep; /**< BLEP YM emulator data. */
+     ym_dump_t dump; /**< DUMP YM emulator data. */
+   } emu;            /**< Engine private data. */
++
++  /* Scope capture ring buffers for per-channel audio visualization */
++  float    scope_buffer[YM_SCOPE_NUM_CHANNELS][YM_SCOPE_BUFFER_SIZE];
++  uint32_t scope_write_pos[YM_SCOPE_NUM_CHANNELS];
++  int      scope_enabled;
++
+ };
+ 
+ /**
+@@ -529,6 +540,28 @@
+ int ym_clock(ym_t * const ym, int clock);
+ 
+ /**
++ * Enable or disable per-channel scope capture.
++ *
++ * @param ym      YM-2149 emulator instance
++ * @param enable  Non-zero to enable, zero to disable
++ */
++IO68_EXTERN
++void ym_enable_scope_capture(ym_t * const ym, int enable);
++
++/**
++ * Retrieve per-channel scope data from ring buffer.
++ *
++ * @param ym          YM-2149 emulator instance
++ * @param channel     Channel index (0-2)
++ * @param buffer      Output buffer for float samples
++ * @param num_samples Maximum number of samples to retrieve
++ * @return Number of samples written to buffer
++ */
++IO68_EXTERN
++uint32_t ym_get_scope_data(ym_t * const ym, int channel,
++                           float * buffer, uint32_t num_samples);
++
++/**
+  * @}
+  */
+ 
+--- a/libsc68/io68/ymemul.c
++++ b/libsc68/io68/ymemul.c
+@@ -612,3 +612,49 @@
+ {
+   return ym->cb_buffersize(ym,ymcycles);
+ }
++
++void ym_enable_scope_capture(ym_t * const ym, int enable)
++{
++  int i;
++  unsigned int j;
++
++  if (!ym)
++    return;
++
++  ym->scope_enabled = enable;
++
++  if (enable) {
++    for (i = 0; i < YM_SCOPE_NUM_CHANNELS; i++) {
++      ym->scope_write_pos[i] = 0;
++      for (j = 0; j < YM_SCOPE_BUFFER_SIZE; j++) {
++        ym->scope_buffer[i][j] = 0.0f;
++      }
++    }
++  }
++}
++
++uint32_t ym_get_scope_data(ym_t * const ym, int channel,
++                           float * buffer, uint32_t num_samples)
++{
++  uint32_t read_pos;
++  uint32_t i;
++
++  if (!ym || !buffer || !ym->scope_enabled)
++    return 0;
++
++  if (channel < 0 || channel >= YM_SCOPE_NUM_CHANNELS)
++    return 0;
++
++  if (num_samples > YM_SCOPE_BUFFER_SIZE)
++    num_samples = YM_SCOPE_BUFFER_SIZE;
++
++  read_pos = (ym->scope_write_pos[channel] - num_samples + YM_SCOPE_BUFFER_SIZE)
++    & YM_SCOPE_BUFFER_MASK;
++
++  for (i = 0; i < num_samples; i++) {
++    buffer[i] = ym->scope_buffer[channel][read_pos];
++    read_pos = (read_pos + 1) & YM_SCOPE_BUFFER_MASK;
++  }
++
++  return num_samples;
++}
+--- a/libsc68/io68/ym_blep.c
++++ b/libsc68/io68/ym_blep.c
+@@ -311,6 +311,22 @@
+       output[len++] =
+         highpass(ym, ym2149_output(ym, blep->cycles_to_next_sample));
+       assert(len < MAX_MIXBUF);
++
++      /* Capture per-channel scope data at output sample rate */
++      if (ym->scope_enabled) {
++        u32 ch;
++        for (ch = 0; ch < 3; ch++) {
++          u16 ch_mask = blep->tonegen[ch].tonemix | blep->tonegen[ch].flip_flop;
++          ch_mask &= blep->tonegen[ch].noisemix | blep->noise_output;
++          ch_mask &= ((blep->env_output & blep->tonegen[ch].envmask)
++                       | blep->tonegen[ch].volmask);
++          u16 ch_dac = (ch_mask >> (ch * 5)) & 0x1F;
++          s16 ch_out = (ym->ymout5[ch_dac] + 1) >> 1;
++          ym->scope_buffer[ch][ym->scope_write_pos[ch] & YM_SCOPE_BUFFER_MASK] = (float)ch_out / 16384.0f;
++          ym->scope_write_pos[ch]++;
++        }
++      }
++
+       blep->cycles_to_next_sample += blep->cycles_per_sample;
+     }
+   }
+--- a/libsc68/io68/ym_puls.c
++++ b/libsc68/io68/ym_puls.c
+@@ -256,6 +256,17 @@
+     sq &= ym->voice_mute;                         /* Apply mute. */
+     *ym->outptr++ = sq;
+ 
++    /* Capture per-channel scope data by isolating each channel's DAC value */
++    if (ym->scope_enabled) {
++      int ch;
++      for (ch = 0; ch < 3; ch++) {
++        u16 ch_dac = (sq >> (ch * 5)) & 0x1F;
++        s16 ch_out = (ym->ymout5[ch_dac] + 1) >> 1;
++        ym->scope_buffer[ch][ym->scope_write_pos[ch] & YM_SCOPE_BUFFER_MASK] = (float)ch_out / 16384.0f;
++        ym->scope_write_pos[ch]++;
++      }
++    }
++
+   } while (--ymcycles);
+ 
+ finish:
+--- a/libsc68/sc68/sc68.h
++++ b/libsc68/sc68/sc68.h
+@@ -587,6 +587,37 @@
+  */
+ const char * sc68_mimetype(void);
+ 
++SC68_API
++/**
++ * Enable or disable per-channel scope capture.
++ *
++ * @param sc68    sc68 instance
++ * @param enable  Non-zero to enable, zero to disable
++ */
++void sc68_scope_enable(sc68_t * sc68, int enable);
++
++SC68_API
++/**
++ * Get the number of scope channels for the current track.
++ *
++ * @param sc68  sc68 instance
++ * @return Number of channels (3 for YM, 4 for Paula, 0 if no track)
++ */
++int sc68_scope_channels(sc68_t * sc68);
++
++SC68_API
++/**
++ * Retrieve per-channel scope data.
++ *
++ * @param sc68        sc68 instance
++ * @param channel     Channel index
++ * @param buffer      Output buffer for float samples [-1.0, 1.0]
++ * @param num_samples Maximum number of samples to retrieve
++ * @return Number of samples written to buffer
++ */
++uint32_t sc68_scope_get_data(sc68_t * sc68, int channel,
++                             float * buffer, uint32_t num_samples);
++
+ #ifndef HAVE_VFS68
+ typedef struct _vfs68_t vfs68_t; /**< normally defined in sc68/file68_vfs.h */
+ #define HAVE_VFS68 1
+--- a/libsc68/src/api68.c
++++ b/libsc68/src/api68.c
+@@ -2719,3 +2719,50 @@
+ {
+   return SC68_MIMETYPE;
+ }
++
++void sc68_scope_enable(sc68_t * sc68, int enable)
++{
++  if (!is_sc68(sc68))
++    return;
++
++  if (sc68->ym)
++    ym_enable_scope_capture(sc68->ym, enable);
++
++  if (sc68->paula)
++    paula_enable_scope_capture(sc68->paula, enable);
++}
++
++int sc68_scope_channels(sc68_t * sc68)
++{
++  if (!is_sc68(sc68) || !sc68->mus)
++    return 0;
++
++  if (sc68->mus->hwflags & SC68_AGA)
++    return 4;
++
++  if (sc68->mus->hwflags & SC68_PSG)
++    return 3;
++
++  return 0;
++}
++
++uint32_t sc68_scope_get_data(sc68_t * sc68, int channel,
++                             float * buffer, uint32_t num_samples)
++{
++  if (!is_sc68(sc68) || !sc68->mus || !buffer || num_samples == 0)
++    return 0;
++
++  if (sc68->mus->hwflags & SC68_AGA) {
++    if (!sc68->paula)
++      return 0;
++    return paula_get_scope_data(sc68->paula, channel, buffer, num_samples);
++  }
++
++  if (sc68->mus->hwflags & SC68_PSG) {
++    if (!sc68->ym)
++      return 0;
++    return ym_get_scope_data(sc68->ym, channel, buffer, num_samples);
++  }
++
++  return 0;
++}
