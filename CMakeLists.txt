@@ -183,7 +183,7 @@ target_include_directories(io68 PRIVATE
     ${FILE68_ROOT}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_compile_definitions(io68 PRIVATE HAVE_CONFIG_H)
+target_compile_definitions(io68 PRIVATE HAVE_CONFIG_H NDEBUG)
 if(NOT MSVC)
     target_compile_options(io68 PRIVATE "-include${CMAKE_CURRENT_SOURCE_DIR}/config.h")
 endif()
@@ -248,6 +248,7 @@ target_compile_definitions(sc68_playback PRIVATE
     PACKAGE_VERSION="3.0.0"
     VERSION="3.0.0"
     FILE68_UNICE68=1
+    NDEBUG  # SC68 has debug asserts for unsupported-but-handled MFP modes that crash the app
 )
 
 if(NOT MSVC)
