@@ -433,25 +433,25 @@ static void sc68_plugin_static_destroy(void) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint32_t sc68_plugin_get_scope_data(void* user_data, int channel, float* buffer, uint32_t num_samples) {
+static bool sc68_plugin_get_structure(void* user_data, RVVizInfo* out) {
     Sc68ReplayerData* data = (Sc68ReplayerData*)user_data;
-    if (data == nullptr || data->sc68 == nullptr || buffer == nullptr) {
-        return 0;
+    if (data == nullptr || out == nullptr) {
+        return false;
     }
-
-    if (!data->scope_enabled) {
-        sc68_scope_enable(data->sc68, 1);
-        data->scope_enabled = 1;
-    }
-
-    return sc68_scope_get_data(data->sc68, channel, buffer, num_samples);
+    int channels = (data->sc68 != nullptr) ? sc68_scope_channels(data->sc68) : 0;
+    out->caps = RVVizCaps_Scope;
+    out->scroll_mode = RVScrollMode_Synchronized;
+    out->pattern_channel_count = 0;
+    out->scope_channel_count = channels > 0 ? (uint32_t)channels : 0;
+    out->column_count = 0;
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint32_t sc68_plugin_get_scope_channel_names(void* user_data, const char** names, uint32_t max_channels) {
+static uint32_t sc68_plugin_get_scope_channels(void* user_data, RVChannelDesc* out, uint32_t cap) {
     Sc68ReplayerData* data = (Sc68ReplayerData*)user_data;
-    if (data == nullptr || data->sc68 == nullptr)
+    if (data == nullptr || data->sc68 == nullptr || out == nullptr)
         return 0;
 
     static const char* s_ym_names[] = { "Tone A", "Tone B", "Tone C" };
@@ -462,13 +462,37 @@ static uint32_t sc68_plugin_get_scope_channel_names(void* user_data, const char*
         return 0;
 
     uint32_t count = (uint32_t)channels;
-    if (count > max_channels)
-        count = max_channels;
+    if (count > cap)
+        count = cap;
 
     const char** src = (channels == 3) ? s_ym_names : s_paula_names;
-    for (uint32_t i = 0; i < count; i++)
-        names[i] = src[i];
+    for (uint32_t i = 0; i < count; i++) {
+        memset(out[i].name, 0, sizeof(out[i].name));
+        snprintf((char*)out[i].name, sizeof(out[i].name), "%s", src[i]);
+        out[i].scope_width = 0;
+    }
     return count;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void sc68_plugin_set_scope_enabled(void* user_data, bool on) {
+    Sc68ReplayerData* data = (Sc68ReplayerData*)user_data;
+    if (data == nullptr || data->sc68 == nullptr) {
+        return;
+    }
+    sc68_scope_enable(data->sc68, on ? 1 : 0);
+    data->scope_enabled = on ? 1 : 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static uint32_t sc68_plugin_get_scope_samples(void* user_data, int32_t channel, float* out, uint32_t cap) {
+    Sc68ReplayerData* data = (Sc68ReplayerData*)user_data;
+    if (data == nullptr || data->sc68 == nullptr || out == nullptr || !data->scope_enabled) {
+        return 0;
+    }
+    return sc68_scope_get_data(data->sc68, channel, out, cap);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -490,12 +514,19 @@ static RVPlaybackPlugin g_sc68_plugin = {
     sc68_plugin_metadata,
     sc68_plugin_static_init,
     nullptr, // settings_updated
-    nullptr, // get_tracker_info (not a tracker format)
-    nullptr, // get_pattern_cell
-    nullptr, // get_pattern_num_rows
-    sc68_plugin_get_scope_data,
     sc68_plugin_static_destroy,
-    sc68_plugin_get_scope_channel_names,
+
+    // Visualization: scope-only (YM tone or Paula channels, no pattern grid).
+    sc68_plugin_get_structure,
+    nullptr, // get_columns
+    nullptr, // get_pattern_channels
+    sc68_plugin_get_scope_channels,
+    nullptr, // get_position
+    nullptr, // get_channel_rows
+    nullptr, // get_cells
+    sc68_plugin_set_scope_enabled,
+    sc68_plugin_get_scope_samples,
+    nullptr, // get_vu
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
