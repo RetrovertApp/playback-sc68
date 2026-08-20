@@ -1,0 +1,9 @@
+[plugin]
+name = "sc68"
+
+[data]
+entries = []
+
+[[fixtures]]
+file = "fixtures/About-Intro.sc68"
+sha256 = "9a27e6a0a2d09d182aee2aafdad71e5091cf11230449bcb85939ce432199c7c9"
